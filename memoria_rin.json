@@ -1,0 +1,63 @@
+{
+    "dialog_history": [
+        [
+            "usuario",
+            "abrir youtube",
+            1749719453.5211084
+        ],
+        [
+            "rin",
+            "Es una buena manera de verlo, trataré de tenerlo en cuenta.",
+            1749719453.522108
+        ],
+        [
+            "Rin",
+            "Es una buena manera de verlo, trataré de tenerlo en cuenta. ¡Hmph! Ya cumplí, Angel.",
+            1749719453.523108
+        ],
+        [
+            "Usuario",
+            "spotyfi",
+            1749719509.696946
+        ],
+        [
+            "usuario",
+            "spotyfi",
+            1749719523.8131843
+        ],
+        [
+            "rin",
+            "Lo intentaré la próxima vez, gracias por el consejo.",
+            1749719523.814184
+        ],
+        [
+            "Rin",
+            "Lo intentaré la próxima vez, gracias por el consejo. Bueno Angel, ¿qué quieres ahora?",
+            1749719523.815184
+        ],
+        [
+            "Usuario",
+            "pon spotify",
+            1749719528.5759027
+        ],
+        [
+            "Rin",
+            "Hola Angel. ¿Qué deseas ahora?",
+            1749724049.230801
+        ],
+        [
+            "Rin",
+            "Hola Angel. ¿Qué deseas ahora?",
+            1749724187.7642074
+        ]
+    ],
+    "dueno": "Angel",
+    "gustos": [],
+    "favoritos": [],
+    "recomendaciones": [],
+    "nombre": "Angel",
+    "comandos_usados": {
+        "buscar": 3,
+        "calculo": 1
+    }
+}

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Rin Live2D</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: transparent; }
+    canvas { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+  </style>
+</head>
+<body>
+  <canvas id="live2d" width="280" height="280"></canvas>
+
+  <!-- Carga el Core de Live2D -->
+  <script src="ui/CubismSdkForWeb-5-r.4/Core/live2dcubismcore.min.js"></script>
+
+  <!-- Carga el Framework (compilado desde TypeScript) -->
+  <script src="ui/CubismSdkForWeb-5-r.4/Framework/dist/live2dcubismframework.js"></script>
+
+  <!-- Helper simple para cargar el modelo -->
+  <script type="module">
+    import * as PIXI from "https://cdn.jsdelivr.net/npm/pixi.js@6.5.8/dist/pixi.min.mjs";
+    import { Live2DModel } from "https://cdn.jsdelivr.net/npm/pixi-live2d-display@4.2.0/+esm";
+
+    const app = new PIXI.Application({
+      view: document.getElementById("live2d"),
+      autoStart: true,
+      backgroundAlpha: 0,
+      resizeTo: window,
+    });
+
+    const modelPath = "ui/CubismSdkForWeb-5-r.4/Samples/Resources/LittleCat_Model/LittleCat_vts/LittleCat.model3.json";
+
+    Live2DModel.from(modelPath).then((model) => {
+      model.scale.set(0.15);
+      model.x = app.renderer.width / 2;
+      model.y = app.renderer.height / 2;
+      model.anchor.set(0.5, 0.5);
+
+      app.stage.addChild(model);
+
+      // 💤 Idle motion loop (si tiene animaciones por defecto)
+      model.internalModel.motionManager.startRandomMotion("Idle", 0);
+
+      // 👁️ Parpadeo automático
+      const blinkMotion = () => {
+        if (model.internalModel.eyeBlink) {
+          model.internalModel.eyeBlink.update(model.internalModel.parameters, performance.now() / 1000);
+        }
+      };
+
+      app.ticker.add(() => {
+        blinkMotion();
+      });
+
+      // 🖱️ Interacción con clic: hace un pequeño movimiento de saludo
+      window.addEventListener("click", () => {
+        model.motion("Tap@Body")?.start(); // Cambia por cualquier nombre de motion válido en tu modelo
+      });
+
+      // 🧠 Movimiento del rostro al puntero
+      window.addEventListener("mousemove", (e) => {
+        const posX = (e.clientX / window.innerWidth - 0.5) * 2;
+        const posY = (e.clientY / window.innerHeight - 0.5) * 2;
+        model.internalModel.parameters.setValueById("ParamAngleX", posX * 30);
+        model.internalModel.parameters.setValueById("ParamAngleY", -posY * 30);
+        model.internalModel.parameters.setValueById("ParamBodyAngleX", posX * 10);
+        model.internalModel.parameters.setValueById("ParamEyeBallX", posX);
+        model.internalModel.parameters.setValueById("ParamEyeBallY", -posY);
+      });
+    });
+  </script>
+</body>
+</html>

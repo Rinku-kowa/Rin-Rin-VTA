@@ -1,0 +1,8 @@
+from tortoise.api import TextToSpeech
+from tortoise.utils.audio import load_voice, load_voices
+
+tts = TextToSpeech()
+voice = "angie"  # o cualquier otra que suene melancólica
+
+def generar_voz(texto):
+    tts.tts_to_file(texto, voice=voice, file_path="salida.wav")

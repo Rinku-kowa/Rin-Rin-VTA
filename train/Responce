@@ -1,0 +1,118 @@
+import os
+import json
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM
+from modules.conversational import ConversationalModule
+from modules.memory import MemoryModule
+from modules.speech_to_text import SpeechToTextModule
+from modules.text_to_speech import TextToSpeechModule
+from modules.spotify import SpotifyModule
+from modules.youtube import BrowserModule
+from modules.internet_search import InternetSearchModule
+from modules.application import ApplicationModule
+from modules.Calculator import CalculatorModule
+from config import (
+    EDGE_DRIVER_PATH,
+    MEMORIA_PATH,
+    SPOTIFY_CLIENT_ID,
+    SPOTIFY_CLIENT_SECRET,
+    MODEL_DIR  # Añadido en config: ruta al adaptador LoRA generado
+)
+
+
+def load_model(model_dir, device):
+    """
+    Carga el tokenizador y modelo fine-tuned con LoRA.
+    """
+    tokenizer = AutoTokenizer.from_pretrained(model_dir)
+    tokenizer.pad_token = tokenizer.eos_token
+    model = AutoModelForCausalLM.from_pretrained(model_dir).to(device)
+    model.config.use_cache = False
+    return tokenizer, model
+
+
+def generate_ai_response(tokenizer, model, prompt, device, max_length=200):
+    inputs = tokenizer(prompt, return_tensors="pt").to(device)
+    outputs = model.generate(
+        **inputs,
+        max_length=max_length,
+        pad_token_id=tokenizer.eos_token_id,
+        do_sample=True,
+        top_p=0.9,
+        temperature=0.8
+    )
+    text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    # Extraer solo la parte después de 'Rin:' si existe
+    if 'Rin:' in text:
+        text = text.split('Rin:')[-1].strip()
+    return text
+
+
+def main():
+    # Inicializar memoria, TTS, STT, y módulos auxiliares
+    memory_module = MemoryModule(MEMORIA_PATH)
+    tts = TextToSpeechModule(os.path.join("C:/Rin voice asistant", "audios"))
+    stt = SpeechToTextModule()
+    spotify = SpotifyModule(SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, "http://localhost:8888/callback")
+    browser = BrowserModule(EDGE_DRIVER_PATH)
+    internet_search = InternetSearchModule()
+    app_module = ApplicationModule()
+    calculator = CalculatorModule()
+
+    # Cargar modelo AI
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    tokenizer, ai_model = load_model(MODEL_DIR, device)
+
+    # Saludo inicial
+    dueno = memory_module.memoria.get('dueno', 'Usuario')
+    saludo = f"Hola {dueno}. ¿Qué deseas ahora?"
+    saludo_path = tts.speak(saludo, "saludo.wav")
+    tts.play_audio(saludo_path)
+
+    while True:
+        modo = input("¿Modo 'voz' o 'texto'? ").strip().lower()
+        if modo == 'voz':
+            entrada = stt.escuchar()
+        else:
+            entrada = input("Tú: ").strip()
+
+        if entrada.lower() in ['salir', 'adiós', 'hasta luego']:
+            bye_path = tts.speak("Adiós... baka.", "bye.wav")
+            tts.play_audio(bye_path)
+            break
+
+        # Comandos específicos
+        if 'buscar en youtube' in entrada.lower():
+            ask = tts.speak("¿Qué quieres ver en YouTube?", "ask_youtube.wav")
+            tts.play_audio(ask)
+            query = stt.escuchar() if modo == 'voz' else input("Buscar YouTube: ")
+            browser.buscar_youtube(query)
+            continue
+        elif 'buscar en spotify' in entrada.lower():
+            ask = tts.speak("¿Qué canción quieres en Spotify?", "ask_spotify.wav")
+            tts.play_audio(ask)
+            query = stt.escuchar() if modo == 'voz' else input("Buscar Spotify: ")
+            spotify.reproducir_spotify(query)
+            continue
+        elif any(x in entrada.lower() for x in ['cómo', 'qué', 'por qué']):
+            ask = tts.speak("¿Quieres que lo busque en internet?", "ask_search.wav")
+            tts.play_audio(ask)
+            resp = internet_search.buscar_internet(entrada)
+            respuesta = resp or "Lo siento, no encontré información sobre eso."
+        elif 'calcular' in entrada.lower():
+            ask = tts.speak("¿Qué cálculo deseas realizar?", "ask_calculate.wav")
+            tts.play_audio(ask)
+            query = stt.escuchar() if modo == 'voz' else input("Cálculo: ")
+            respuesta = calculator.calcular(query)
+        else:
+            # Generar respuesta con IA
+            prompt = f"<|startoftext|>Usuario: {entrada}\nRin:"
+            respuesta = generate_ai_response(tokenizer, ai_model, prompt, device)
+
+        # Síntesis y reproducción
+        out_path = tts.speak(respuesta, "respuesta.wav")
+        tts.play_audio(out_path)
+
+
+if __name__ == '__main__':
+    main()

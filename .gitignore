@@ -1,0 +1,14 @@
+# Ignorar modelos de BlenderBot
+models--facebook--blenderbot-400M-distill/
+
+# Ignorar modelos de MarianMT
+models--Helsinki-NLP--opus-mt-en-es/
+models--Helsinki-NLP--opus-mt-es-en/
+
+# Ignorar caches de Python
+__pycache__/
+
+# Ignorar archivos de pesos de modelos
+*.bin
+*.pt
+*.ckpt
