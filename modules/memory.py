@@ -63,8 +63,11 @@ class MemoryModule:
             self.memoria["dialog_history"] = self.memoria["dialog_history"][-max_msgs:]
         self._guardar_memoria()
 
-    def get_history(self):
-        return self.memoria.get("dialog_history", [])
+    def get_history(self, turnos=None):
+        history = self.memoria.get("dialog_history", [])
+        if turnos is not None:
+            return history[-turnos:]
+        return history
 
     def construir_contexto(self, personalidad):
         contexto = personalidad + "\n\n"

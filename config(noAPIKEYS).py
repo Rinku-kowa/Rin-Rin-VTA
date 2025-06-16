@@ -12,6 +12,7 @@ VOICE_CONFIG_PATH = os.path.join(BASE_DIR, "piper", "Piper-TTS-Laura", "es_MX-la
 AUDIO_DIR = os.path.join(BASE_DIR, "audios")
 MEMORIA_PATH = os.path.join(BASE_DIR, "memoria_rin.json")
 MAX_HISTORY = 5
-SPOTIFY_CLIENT_ID = "9eac9e0aa28346d5acce7dfd89c36602"
-SPOTIFY_CLIENT_SECRET = "1917b8905ea84d17858dd9d1a28ba913"
-API_KEY = "d586820cce62dd1059906ca14e04753a"
+SPOTIFY_CLIENT_ID = ""
+SPOTIFY_CLIENT_SECRET = ""
+API_KEY = ""
+#change the api keys whit your personal clients or api keys

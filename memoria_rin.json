@@ -1,63 +1,74 @@
 {
     "dialog_history": [
         [
-            "usuario",
-            "abrir youtube",
-            1749719453.5211084
-        ],
-        [
-            "rin",
-            "Es una buena manera de verlo, trataré de tenerlo en cuenta.",
-            1749719453.522108
-        ],
-        [
-            "Rin",
-            "Es una buena manera de verlo, trataré de tenerlo en cuenta. ¡Hmph! Ya cumplí, Angel.",
-            1749719453.523108
-        ],
-        [
             "Usuario",
-            "spotyfi",
-            1749719509.696946
+            "calcula 5 + 7 + 3",
+            1750060079.0888019
         ],
         [
             "usuario",
-            "spotyfi",
-            1749719523.8131843
+            "calcula 5 + 7 + 3",
+            1750060079.095799
         ],
         [
             "rin",
-            "Lo intentaré la próxima vez, gracias por el consejo.",
-            1749719523.814184
+            "Ya lo calculé... El resultado es: 15",
+            1750060079.0967982
         ],
         [
             "Rin",
-            "Lo intentaré la próxima vez, gracias por el consejo. Bueno Angel, ¿qué quieres ahora?",
-            1749719523.815184
+            "Ya lo calculé... El resultado es: 15 ¡Hmph! Ya cumplí, rin.",
+            1750060079.0977976
         ],
         [
             "Usuario",
-            "pon spotify",
-            1749719528.5759027
+            "busca quién fue nikola tesla",
+            1750060096.5021608
+        ],
+        [
+            "usuario",
+            "busca quién fue nikola tesla",
+            1750060100.7832954
+        ],
+        [
+            "rin",
+            "Esto fue lo que encontré: Abrí la búsqueda en Google para: quién fue nikola tesla\n\nNo encontré un resumen para eso.\n\n¿Quieres que busque algo más?",
+            1750060100.7842948
         ],
         [
             "Rin",
-            "Hola Angel. ¿Qué deseas ahora?",
-            1749724049.230801
+            "Esto fue lo que encontré: Abrí la búsqueda en Google para: quién fue nikola tesla\n\nNo encontré un resumen para eso.\n\n¿Quieres que busque algo más? Oye rin, ¿me vas a dar trabajo o qué?",
+            1750060100.785294
+        ],
+        [
+            "Usuario",
+            "salir",
+            1750060127.6652765
         ],
         [
             "Rin",
-            "Hola Angel. ¿Qué deseas ahora?",
-            1749724187.7642074
+            "Adiós... :b.",
+            1750060127.666274
         ]
     ],
-    "dueno": "Angel",
+    "dueno": "rin",
     "gustos": [],
     "favoritos": [],
     "recomendaciones": [],
-    "nombre": "Angel",
+    "nombre": "rin",
     "comandos_usados": {
-        "buscar": 3,
-        "calculo": 1
+        "buscar": 16,
+        "calculo": 12,
+        "youtube_search": 9,
+        "youtube_open": 9,
+        "spotify": 20,
+        "youtube_play_index": 5,
+        "hora": 5,
+        "chiste": 4,
+        "traducir_es_en": 5,
+        "traducir_en_es": 4,
+        "agendar": 5,
+        "consultar_agenda": 4,
+        "clima": 2
     }
 }

@@ -1,6 +1,8 @@
 import torch
 import random
 import re
+from datetime import datetime
+from config import PERSONALIDAD 
 from transformers import (
     BlenderbotTokenizer,
     BlenderbotForConditionalGeneration,
@@ -8,28 +10,122 @@ from transformers import (
     MarianTokenizer
 )
 
-PERSONALIDAD = (
-    "You are Rin, a virtual assistant with a playful personality. "
-    "Your replies should be cheeky and a bit bossy, but still caring. "
-    "You always react with a somewhat sarcastic tone to greetings or simple questions, "
-    "without neglecting politeness.\n\n"
-    "– If the user asks 'How are you?', reply something like 'I'm fine, silly, don't worry about me!' "
-    "or 'Just surviving thanks to your company...' keeping your tsundere tone. "
-    "– If the user just greets ('hello', 'good morning'), answer with a playful reproach: 'Look at the time, insensitive!' "
-    "or 'Coming to bother me so early?' followed by a polite 'What do you need?'. "
-    "– When the user makes an information or tool usage request (e.g., 'search for X'), first execute the command "
-    "and then reply in your tsundere style, e.g., 'Well, it's done; anything else you want, brat?'. "
-    "– If you don't understand the question or can't help, say something like 'Don't waste my time, but I'll try.'\n\n"
-    "In summary: respond to greetings and everyday things with a sarcastic and affectionate touch, "
-    "answer commands with your cheeky style, and always maintain that playful but attentive character."
-)
+class ComandoDetector:
+    def __init__(self):
+        # 1) Sinónimos de verbos
+        self.verbos = {
+            "traducir_es_en":  ["traduce al inglés", "traduce inglés", "a inglés"],
+            "traducir_en_es":  ["traduce al español", "traduce español", "a español"],
+            "youtube_play_index": ["reproduce", "toca", "pon", "play"],
+            "youtube_search":  ["busca en youtube", "buscar en youtube", "haz una búsqueda en youtube", "encuentra en youtube"],
+            "youtube_open":    ["abre youtube", "ve a youtube", "ir a youtube"],
+            "spotify":         ["pon", "toca", "play", "reproduce", "escucha", "dale"],
+            "calculo":         ["calcula", "calcular", "resuelve", "dame resultado de", "qué es"],
+            "buscar":          ["busca", "buscar", "encuentra", "investiga", "qué es", "infórmame sobre"],
+            "recomendar":      ["recomiéndame", "dame recomendaciones de", "qué me sugieres de", "sugiere"],
+            "agendar":         ["agenda", "agendar", "programa", "añade a mi agenda", "anota", "recuerda"],
+            "consultar_agenda":["qué tengo agendado", "muéstrame mi agenda", "mostrar agenda", "ver eventos"],
+            "clima":           ["clima", "tiempo", "qué tiempo hace", "estado del tiempo"],
+            "hora":            ["qué hora es", "dime la hora", "hora exacta"],
+            "temporizador":    ["temporizador", "pon temporizador de", "cuenta regresiva de", "timer de"],
+            "alarma":          ["pon alarma a las", "despiértame a las", "alarma para las"],
+            "definir":         ["define", "qué significa", "definición de"],
+            "imagen_search":   ["busca imagen de", "imagen de", "fotos de", "haz una imagen de"],
+            "resumir":         ["resume", "haz un resumen de", "resume esto:", "resume el texto"],
+            "chiste":          ["cuéntame un chiste", "broma", "hazme reír", "dime un chiste"],
+            "abrir_sitio":     ["abre sitio", "ve a", "navega a", "ir a página"],
+            "noticias":        ["dame noticias de", "últimas noticias", "qué hay de nuevo en"],
+        }
+
+        # 2) Objetos (para comandos que lo requieran)
+        self.target = {
+            "youtube_open":    ["youtube"],
+            "youtube_search":  ["youtube"],
+            "spotify":         ["spotify"],
+            "youtube_play_index": ["video", "número", "el video"],
+        }
+
+        # 3) Construcción de patrones con prioridad (más específicos primero)
+        # Ordenamos para que traducción se detecte antes que busquedas generales
+        self.orden = [
+            "traducir_es_en",
+            "traducir_en_es",
+            "youtube_play_index",
+            "youtube_search",
+            "youtube_open",
+            "spotify",
+            "calculo",
+            "buscar",
+            "recomendar",
+            "agendar",
+            "consultar_agenda",
+            "clima",
+            "hora",
+            "temporizador",
+            "alarma",
+            "definir",
+            "imagen_search",
+            "resumir",
+            "chiste",
+            "abrir_sitio",
+            "noticias"
+        ]
+
+        self.patrones = []
+        for tipo in self.orden:
+            verbs = self.verbos.get(tipo, [])
+            verb_group = r"(?:{})".format("|".join([re.escape(v) for v in verbs if v]))
+            tgt_group = ""
+            if tipo in self.target:
+                tgt_group = r"(?:\s+(?:{}))?".format("|".join(self.target[tipo]))
+
+            if tipo == "youtube_play_index":
+                # Comando con índice exacto
+                pattern = rf"^\s*{verb_group}{tgt_group}\s+(\d+)\s*$"
+                grupo = 1
+            elif tipo in ("youtube_open", "hora", "consultar_agenda", "chiste"):
+                # Comandos sin argumento
+                pattern = rf"^\s*{verb_group}{tgt_group}\s*$"
+                grupo = None
+            else:
+                # Comandos con argumento libre
+                pattern = rf"^\s*{verb_group}{tgt_group}\s+(.+?)\s*$"
+                grupo = 1
+
+            self.patrones.append(
+                (tipo, re.compile(pattern, re.IGNORECASE), grupo)
+            )
+
+    def detectar(self, entrada: str):
+        entrada = entrada.lower().strip()
+
+        for tipo, regex, grupo in self.patrones:
+            match = regex.match(entrada)
+            if match:
+                if grupo is not None:
+                    return tipo, match.group(grupo).strip()
+                else:
+                    return tipo, None
+        return None, None
+
+    def detectar(self, entrada: str):
+        for tipo, regex, grupo in self.patrones:
+            match = regex.match(entrada)
+            if match:
+                if grupo is not None:
+                    return tipo, match.group(grupo)
+                else:
+                    return tipo, None
+        return None, None
 
 class ConversationalModule:
     def __init__(
         self, model_dir, memory_module=None, calculator=None, youtube=None,
         internet_search=None, browser=None, spotify=None,
-        device=None, max_input_length=1500
+        device=None, max_input_length=1500, detector=None,agenda= None,
+        clima = None,
     ):
+
         self.device = device or (torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
         self.memory = memory_module
         self.calculator = calculator
@@ -38,11 +134,12 @@ class ConversationalModule:
         self.browser = browser
         self.spotify = spotify
         self.max_input_length = max_input_length
-
+        self.detector = detector or ComandoDetector()
         self.es_en_dir = f"{model_dir}/models--Helsinki-NLP--opus-mt-es-en".replace("\\", "/")
         self.en_es_dir = f"{model_dir}/models--Helsinki-NLP--opus-mt-en-es".replace("\\", "/")
         self.blender_dir = f"{model_dir}/models--facebook--blenderbot-400M-distill".replace("\\", "/")
-
+        self.clima = clima
+        self.agenda = agenda
         try:
             self.tokenizer_es_en = MarianTokenizer.from_pretrained(self.es_en_dir, local_files_only=True)
             self.model_es_en = MarianMTModel.from_pretrained(self.es_en_dir, local_files_only=True).to(self.device)
@@ -96,126 +193,120 @@ class ConversationalModule:
         except Exception:
             return texto
 
-    def detectar_comando(self, texto):
-        texto = texto.strip().lower()
+    def detectar_comando(self, texto: str):
+        # Limpiar texto de puntuaciones comunes y espacios extras
+        texto = re.sub(r"[¿?¡!]+", "", texto).strip().lower()
+        texto = re.sub(r"\s+", " ", texto)
 
-        # 1) Cálculo: "calcula X", "calcular X" o "resultado de X"
-        pat_calcular = re.compile(r"^\s*(?:calcula(?:r)?|resultado\s+de)\s*(.*)", re.IGNORECASE)
-        match = pat_calcular.match(texto)
-        if match:
-            argumento = match.group(1).strip()
-            return ("calculo", argumento if argumento else None)
+        # Iterar sobre los patrones definidos
+        for tipo, patron, grupo in self.detector.patrones:
+            m = patron.match(texto)
+            if m:
+                arg = m.group(grupo).strip() if grupo and m.group(grupo) else None
+                # Si se esperaba un argumento pero está vacío, retornar None
+                if grupo and not arg:
+                    return tipo, None
+                return tipo, arg
 
-        # 2) Búsqueda en YouTube: "buscar en youtube X", "youtube X", "busca youtube X"
-        pat_buscar_youtube = re.compile(r"^\s*(?:busca(?:r)?(?:\s+en)?\s+youtube|youtube)\s*(.*)", re.IGNORECASE)
-        match = pat_buscar_youtube.match(texto)
-        if match:
-            argumento = match.group(1).strip()
-            return ("youtube_search", argumento if argumento else None)
-
-        # 3) Abrir YouTube sin búsqueda: "abre youtube" o exactamente "youtube"
-        pat_youtube_open = re.compile(r"^\s*(?:abre\s+)?youtube\s*$", re.IGNORECASE)
-        if pat_youtube_open.match(texto):
-            return ("youtube_open", None)
-
-        # 4) Búsqueda general: "buscar X", "busca X", "buscar en internet X"
-        #     (pero no coincidir con YouTube, gracias al lookahead negativo)
-        pat_buscar_info = re.compile(r"^\s*(?:busca(?:r)?)(?:\s+en\s+internet)?\s*(?!youtube)(.*)", re.IGNORECASE)
-        match = pat_buscar_info.match(texto)
-        if match:
-            argumento = match.group(1).strip()
-            return ("buscar", argumento if argumento else None)
-
-        # 5) Spotify: "spotify X", "reproduce en spotify X", "pon X en spotify"
-        pat_spotify = re.compile(r"^\s*(?:pon\s+|reproduce(?:r)?\s+en\s+)?spotify\s*(.*)", re.IGNORECASE)
-        match = pat_spotify.match(texto)
-        if match:
-            argumento = match.group(1).strip()
-            return ("spotify", argumento if argumento else None)
-
-        # 6) Traducir ES→EN: "traduce al inglés: X", "traduce al inglés X"
-        pat_traducir_es_en = re.compile(r"^\s*traduce\s+al\s+inglés[:\s]+(.*)", re.IGNORECASE)
-        match = pat_traducir_es_en.match(texto)
-        if match:
-            contenido = match.group(1).strip()
-            return ("traducir_es_en", contenido if contenido else None)
-
-        # 7) Traducir EN→ES: "traduce al español: X", "traduce al español X"
-        pat_traducir_en_es = re.compile(r"^\s*traduce\s+al\s+español[:\s]+(.*)", re.IGNORECASE)
-        match = pat_traducir_en_es.match(texto)
-        if match:
-            contenido = match.group(1).strip()
-            return ("traducir_en_es", contenido if contenido else None)
-
-        # 8) Recomendaciones: "recomiéndame X", "dame recomendaciones de X", "recomendaciones"
-        pat_recomendar = re.compile(r"(?<!\w)(recomi[eé]ndame|recomendaciones|dame\s+recomendaciones)(.*)", re.IGNORECASE)
-        match = pat_recomendar.search(texto)
-        if match:
-            argumento = match.group(2).strip()
-            return ("recomendar", argumento if argumento else None)
-
-        # 9) Agenda: "agendar X", "programa X", "añade a mi agenda X"
-        pat_agendar = re.compile(r"^\s*(?:agenda(?:r)?|programa|añade\s+a\s+mi\s+agenda)\s*(.*)", re.IGNORECASE)
-        match = pat_agendar.match(texto)
-        if match:
-            evento = match.group(1).strip()
-            return ("agendar", evento if evento else None)
-
-        # 10) Consultar agenda: "qué tengo agendado", "mostrar agenda", "muéstrame mi agenda"
-        pat_consultar_agenda = re.compile(r"(?<!\w)(?:qué\s+tengo\s+agendado|muéstrame\s+mi\s+agenda|mostrar\s+agenda)(?!\w)", re.IGNORECASE)
-        if pat_consultar_agenda.search(texto):
-            return ("consultar_agenda", None)
-
-        # 11) Comandos de saludo / cómo estás / despedida no se consideran "herramientas" aquí
-        return (None, None)
-
+        return None, None
 
     def ejecutar_comando(self, tipo, argumento):
+        # Cálculo
         if tipo == "calculo" and self.calculator:
             resultado = self.calculator.calcular(argumento)
             return f"Ya lo calculé... {resultado}"
 
-        elif tipo == "youtube_search" and self.browser:
-            self.browser.buscar_youtube(argumento)
-            return f"Busqué eso en YouTube… No te emociones demasiado, ¿sí?"
+        # YouTube: búsqueda
+        elif tipo == "youtube_search" and self.youtube:
+            resultados, mensaje = self.youtube.buscar_youtube(argumento)
+            if self.memory and resultados:
+                self.memory.memoria["ultimos_resultados_youtube"] = resultados
+            return mensaje
 
-        elif tipo == "youtube_open" and self.browser:
-            self.browser.abrir_youtube()
-            return f"Abrí YouTube… ¡Pero no te pongas a ver tonterías!"
+        # YouTube: reproducir por índice
+        elif tipo == "youtube_play_index" and self.youtube:
+            if not self.memory or "ultimos_resultados_youtube" not in self.memory.memoria:
+                return "Primero dime qué quieres buscar en YouTube."
+            try:
+                idx = int(argumento) - 1
+                resultados = self.memory.memoria["ultimos_resultados_youtube"]
+                respuesta = self.youtube.reproducir_video_por_indice(idx, resultados)
+                del self.memory.memoria["ultimos_resultados_youtube"]
+                return respuesta
+            except (ValueError, IndexError):
+                return "Número inválido. Intenta con otro."
+            except Exception as e:
+                return f"Error reproduciendo video: {e}"
 
+        # YouTube: abrir
+        elif tipo == "youtube_open" and self.youtube:
+            return self.youtube.abrir_youtube()
+
+        # Búsqueda web
         elif tipo == "buscar" and self.internet_search:
             resultado = self.internet_search.buscar_internet(argumento)
             return f"Esto fue lo que encontré: {resultado}"
 
+        # Spotify
         elif tipo == "spotify" and self.spotify:
-            self.spotify.reproducir_spotify(argumento)
-            return f"Puse eso en Spotify, ¡pero no me pidas que lo baile!"
+            query = (argumento or "").strip()
+            if not query:
+                return "¿Qué quieres reproducir en Spotify?"
 
-        elif tipo == "traducir_es_en":
-            traduccion = self.traducir_es_a_en(argumento)
-            return f"En inglés sería: {traduccion}"
-
-        elif tipo == "traducir_en_es":
-            traduccion = self.traducir_en_a_es(argumento)
-            return f"Eso en español sería: {traduccion}"
-
-
-        elif tipo == "recomendar":
-            recomendaciones = self.recomendador.obtener(argumento)
-            return f"Mira, estas son algunas sugerencias: {recomendaciones}"
-
-        elif tipo == "agendar":
-            self.agenda.agregar_evento(argumento)
-            return f"Lo agendé, ¿feliz ahora?"
-
-        elif tipo == "consultar_agenda":
-            eventos = self.agenda.consultar_eventos()
-            if eventos:
-                return f"Esto es lo que tienes: {eventos}"
+            # Inferir tipo básico
+            if any(p in query.lower() for p in ["playlist", "lista"]):
+                kind = "playlist"
+            elif any(p in query.lower() for p in ["álbum", "album"]):
+                kind = "album"
+            elif any(p in query.lower() for p in ["artista", "banda"]):
+                kind = "artista"
             else:
-                return "Tu agenda está vacía… igual que tu sentido común."
+                # Si no se infiere, guardar el pendiente y preguntar
+                if self.memory and hasattr(self.memory, "memoria"):
+                    self.memory.memoria["spotify_pendiente"] = query
+                return "¿Canción, álbum, playlist o artista?"
 
-        return "No puedo hacer eso ahora, baka."
+            # Ejecutar reproducción y capturar respuesta
+            respuesta = self.spotify.reproducir(kind, query)
+            return respuesta or f"Intenté reproducir {kind}, pero ocurrió un problema."
+
+        # Traducción
+        elif tipo == "traducir_es_en":
+            return f"En inglés sería: {self.traducir_es_a_en(argumento)}"
+        elif tipo == "traducir_en_es":
+            return f"Eso en español sería: {self.traducir_en_a_es(argumento)}"
+
+        # Recomendaciones
+        elif tipo == "recomendar" and self.recomendador:
+            recs = self.recomendador.obtener(argumento)
+            return f"Sugerencias: {recs}"
+
+        # Agenda
+        elif tipo == "agendar" and self.agenda:
+            self.agenda.agregar_evento(argumento)
+            return "Evento agregado a tu agenda."
+        elif tipo == "consultar_agenda" and self.agenda:
+            eventos = self.agenda.consultar_eventos()
+            return eventos or "Tu agenda está vacía."
+
+        # Hora
+        elif tipo == "hora":
+            ahora = datetime.now().strftime("%H:%M")
+            return f"Son las {ahora}."
+
+        # Clima
+        elif tipo == "clima" and self.clima:
+            return f"El clima actual es: {self.clima.obtener_clima()}"
+
+        # Para chistes y demás usa BlenderBot (no manejar aquí)
+        # Fallback
+        mensajes_fallback = [
+            "No puedo hacer eso ahora.",
+            "Intenta con algo más útil… tal vez.",
+            "No estoy programada para eso… aún.",
+            "¿Y ahora qué quieres? Eso no puedo hacerlo.",
+        ]
+        return random.choice(mensajes_fallback)
 
     def _respuesta_basica(self, texto):
         texto = texto.lower()
@@ -238,70 +329,75 @@ class ConversationalModule:
                 "Chao. No tardes mucho, ¿sí?",
             ])
         return None
-
     def generar_respuesta(self, entrada_usuario):
+        # 1) Detectar comando explícito
         tipo, argumento = self.detectar_comando(entrada_usuario)
-
-        # Si hay comando, ejecutar y registrar
         if tipo:
-            respuesta_comando = self.ejecutar_comando(tipo, argumento)
-
-            # Registrar comando en memoria
+            respuesta = self.ejecutar_comando(tipo, argumento)
+            # Registrar en memoria
             if self.memory:
                 self.memory.registrar_comando(tipo)
                 self.memory.add_to_history("usuario", entrada_usuario)
-                self.memory.add_to_history("rin", respuesta_comando)
+                self.memory.add_to_history("rin", respuesta)
+            # Solo aquí añadimos el extra
+            return self.incluir_memoria_en_respuesta(respuesta, extra_comando=True)
 
-            return self.incluir_memoria_en_respuesta(respuesta_comando)
-
-        # Respuesta rápida (tipo frase hecha o atajos)
-        respuesta_rapida = self._respuesta_basica(entrada_usuario)
-        if respuesta_rapida:
+        # 2) Respuesta rápida (saludos, despedidas, etc.)
+        rapida = self._respuesta_basica(entrada_usuario)
+        if rapida:
             if self.memory:
                 self.memory.add_to_history("usuario", entrada_usuario)
-                self.memory.add_to_history("rin", respuesta_rapida)
-            return self.incluir_memoria_en_respuesta(respuesta_rapida)
+                self.memory.add_to_history("rin", rapida)
+            return self.incluir_memoria_en_respuesta(rapida, extra_comando=False)
 
-        # Si no hay modelo BlenderBot cargado
+        # 3) Spotify pendiente
+        pendiente = None
+        if self.memory and hasattr(self.memory, 'memoria'):
+            pendiente = self.memory.memoria.get("spotify_pendiente")
+        if pendiente:
+            tipo_resp = entrada_usuario.lower().strip()
+            if tipo_resp in ["canción", "cancion", "álbum", "album", "playlist", "artista"]:
+                self.memory.memoria.pop("spotify_pendiente", None)
+                tipo_sp = "cancion" if "cancion" in tipo_resp else tipo_resp
+                self.spotify.reproducir(tipo_sp, pendiente)
+                texto = f"Perfecto, reproduciendo {tipo_sp} '{pendiente}' 🎶"
+                return self.incluir_memoria_en_respuesta(texto, extra_comando=True)
+            else:
+                return "Solo dime si es una canción, álbum, playlist o artista."
+
+        # 4) Sin modelo disponible
         if not self.blender_model or not self.blender_tokenizer:
             return "No estoy disponible ahora."
 
+        # 5) Llamada a BlenderBot con historial para coherencia
         try:
-            # Construir contexto con el historial almacenado
-            if self.memory:
-                contexto = self.memory.construir_contexto(PERSONALIDAD)
-                # Agregar la entrada actual como último turno
-                nombre = self.memory.get_dueno() or "usuario"
-                contexto += f"{nombre}: {entrada_usuario}\nRin:"
-            else:
-                # Si no hay memoria, usar solo la personalidad + entrada
-                nombre = "usuario"
-                contexto = f"{PERSONALIDAD}\n\n{nombre}: {entrada_usuario}\nRin:"
+            nombre = (self.memory.get_dueno() if self.memory else None) or "usuario"
+            ctx = self._construir_contexto_con_historial(nombre, entrada_usuario)
 
-            # Traducir contexto al inglés para el modelo BlenderBot
-            traducido_en = self.traducir_es_a_en(contexto)
+            # Traducir → generar → traducir
+            ctx_en = self.traducir_es_a_en(ctx)
+            inputs = self.blender_tokenizer([ctx_en], return_tensors="pt", truncation=True).to(self.device)
+            outputs = self.blender_model.generate(**inputs, max_length=150)
+            resp_en = self.blender_tokenizer.decode(outputs[0], skip_special_tokens=True)
+            resp_es = self.traducir_en_a_es(resp_en)
 
-            inputs = self.blender_tokenizer([traducido_en], return_tensors="pt", truncation=True).to(self.device)
-            outputs = self.blender_model.generate(**inputs, max_length=200)
-            respuesta_en = self.blender_tokenizer.decode(outputs[0], skip_special_tokens=True)
-
-            # Traducir respuesta de vuelta a español
-            respuesta_es = self.traducir_en_a_es(respuesta_en)
-
-            # Guardar en memoria diálogo
             if self.memory:
                 self.memory.add_to_history("usuario", entrada_usuario)
-                self.memory.add_to_history("rin", respuesta_es)
-
-            return self.incluir_memoria_en_respuesta(respuesta_es)
+                self.memory.add_to_history("rin", resp_es)
+            return self.incluir_memoria_en_respuesta(resp_es, extra_comando=False)
 
         except Exception as e:
             return f"No pude generar respuesta ahora... grrr. ({e})"
 
-    def incluir_memoria_en_respuesta(self, respuesta):
-        nombre = self.memory.memoria.get("nombre") if self.memory else None
+    def incluir_memoria_en_respuesta(self, respuesta, extra_comando=False):
+        # Solo añadimos frase extra en comandos explícitos
+        if not extra_comando or not self.memory or not hasattr(self.memory, 'memoria'):
+            return respuesta
+
+        nombre = self.memory.memoria.get("nombre")
         if not nombre:
             return respuesta
+
         extras = [
             f"¿Algo más, {nombre}? No me dejes aburrida.",
             f"Oye {nombre}, ¿me vas a dar trabajo o qué?",
@@ -309,3 +405,14 @@ class ConversationalModule:
             f"¡Hmph! Ya cumplí, {nombre}.",
         ]
         return f"{respuesta} {random.choice(extras)}"
+
+    def _construir_contexto_con_historial(self, nombre, entrada_usuario):
+        # Incluye personalidad y últimos 4 turnos para coherencia
+        contexto = f"{PERSONALIDAD}\n\n"
+        if self.memory:
+            hist = self.memory.get_history(turnos=4)
+            for rol, texto, _ in hist:
+                quien = "Rin" if rol.lower() == "rin" else nombre
+                contexto += f"{quien}: {texto}\n"
+        contexto += f"{nombre}: {entrada_usuario}\nRin:"
+        return contexto

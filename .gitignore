@@ -7,7 +7,7 @@ models--Helsinki-NLP--opus-mt-es-en/
 
 # Ignorar caches de Python
 __pycache__/
-
+config.py
 # Ignorar archivos de pesos de modelos
 *.bin
 *.pt

@@ -4,71 +4,76 @@
   <meta charset="UTF-8" />
   <title>Rin Live2D</title>
   <style>
-    body { margin: 0; overflow: hidden; background: transparent; }
-    canvas { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+    body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+    canvas { display: block; width: 100%; height: 100%; }
   </style>
+  <!-- 1. Cubism Core 4 -->
+  <script src="https://cubism.live2d.com/sdk-web/cubismcore/live2dcubismcore.min.js"></script>
+  <!-- 2. PixiJS v6 -->
+  <script src="https://cdn.jsdelivr.net/npm/pixi.js@6/dist/browser/pixi.min.js"></script>
+  <!-- 3. pixi-live2d-display (Cubism4) -->
+  <script src="https://cdn.jsdelivr.net/npm/pixi-live2d-display@0.4.0/dist/cubism4.min.js"></script>
 </head>
 <body>
-  <canvas id="live2d" width="280" height="280"></canvas>
+  <canvas id="live2d"></canvas>
+  <script>
+    (async () => {
+      // 1) Verificar plugin
+      if (!PIXI?.live2d?.Live2DModel) {
+        console.error("❌ PIXI.live2d no detectado.");
+        return;
+      }
+      console.log("✅ Plugin Live2D (Cubism4) cargado");
 
-  <!-- Carga el Core de Live2D -->
-  <script src="ui/CubismSdkForWeb-5-r.4/Core/live2dcubismcore.min.js"></script>
+      // 2) Inicializar PIXI
+      const app = new PIXI.Application({
+        view: document.getElementById("live2d"),
+        resizeTo: window,
+        backgroundAlpha: 0
+      });
 
-  <!-- Carga el Framework (compilado desde TypeScript) -->
-  <script src="ui/CubismSdkForWeb-5-r.4/Framework/dist/live2dcubismframework.js"></script>
+      // 3) Cargar modelo
+      const modelUrl = "Models/LittleCat_Model/LittleCat_vts/LittleCat.model3.json";
+      let model;
+      try {
+        model = await PIXI.live2d.Live2DModel.from(modelUrl);
+        console.log("✅ Modelo cargado correctamente");
+      } catch (e) {
+        console.error("❌ Error al cargar modelo:", e);
+        return;
+      }
 
-  <!-- Helper simple para cargar el modelo -->
-  <script type="module">
-    import * as PIXI from "https://cdn.jsdelivr.net/npm/pixi.js@6.5.8/dist/pixi.min.mjs";
-    import { Live2DModel } from "https://cdn.jsdelivr.net/npm/pixi-live2d-display@4.2.0/+esm";
-
-    const app = new PIXI.Application({
-      view: document.getElementById("live2d"),
-      autoStart: true,
-      backgroundAlpha: 0,
-      resizeTo: window,
-    });
-
-    const modelPath = "ui/CubismSdkForWeb-5-r.4/Samples/Resources/LittleCat_Model/LittleCat_vts/LittleCat.model3.json";
-
-    Live2DModel.from(modelPath).then((model) => {
-      model.scale.set(0.15);
+      // 4) Ajustar posición y escala
+      model.anchor.set(0.5, 1.0);
+      model.scale.set(0.30);
       model.x = app.renderer.width / 2;
-      model.y = app.renderer.height / 2;
-      model.anchor.set(0.5, 0.5);
-
+      model.y = app.renderer.height - 20;
       app.stage.addChild(model);
 
-      // 💤 Idle motion loop (si tiene animaciones por defecto)
-      model.internalModel.motionManager.startRandomMotion("Idle", 0);
+      // 5) Seguir el ratón (gira cabeza y ojos)
+      window.addEventListener("mousemove", e => {
+        const core = model.internalModel.coreModel;
+        if (!core) return;
 
-      // 👁️ Parpadeo automático
-      const blinkMotion = () => {
-        if (model.internalModel.eyeBlink) {
-          model.internalModel.eyeBlink.update(model.internalModel.parameters, performance.now() / 1000);
-        }
-      };
+        const nx = (e.clientX / window.innerWidth  - 0.5) * 2;
+        const ny = (e.clientY / window.innerHeight - 0.5) * 2;
 
-      app.ticker.add(() => {
-        blinkMotion();
+        core.setParameterValueById("ParamAngleX",      nx * 30);
+        core.setParameterValueById("ParamAngleY",     -ny * 30);
+        core.setParameterValueById("ParamBodyAngleX",  nx * 10);
+        core.setParameterValueById("ParamEyeBallX",     nx);
+        core.setParameterValueById("ParamEyeBallY",    -ny);
       });
 
-      // 🖱️ Interacción con clic: hace un pequeño movimiento de saludo
+      // 6) Acción al clic (si tu modelo define esa motion)
       window.addEventListener("click", () => {
-        model.motion("Tap@Body")?.start(); // Cambia por cualquier nombre de motion válido en tu modelo
+        const mm = model.internalModel.motionManager;
+        if (mm) {
+          // 'Tap@Body' debe existir en tu configuración de motions
+          mm.startMotion("Tap@Body", 0, 0);
+        }
       });
-
-      // 🧠 Movimiento del rostro al puntero
-      window.addEventListener("mousemove", (e) => {
-        const posX = (e.clientX / window.innerWidth - 0.5) * 2;
-        const posY = (e.clientY / window.innerHeight - 0.5) * 2;
-        model.internalModel.parameters.setValueById("ParamAngleX", posX * 30);
-        model.internalModel.parameters.setValueById("ParamAngleY", -posY * 30);
-        model.internalModel.parameters.setValueById("ParamBodyAngleX", posX * 10);
-        model.internalModel.parameters.setValueById("ParamEyeBallX", posX);
-        model.internalModel.parameters.setValueById("ParamEyeBallY", -posY);
-      });
-    });
+    })();
   </script>
 </body>
 </html>

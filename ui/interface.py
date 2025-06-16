@@ -1,189 +1,231 @@
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QTextEdit, QPushButton, QLabel, QHBoxLayout,
-    QSizePolicy
-)
-from PySide6.QtGui import QPixmap, QFont, QTextCursor, QColor, QTextCharFormat
-from PySide6.QtCore import Qt, QThread, Signal, QUrl
-import traceback
-from PySide6.QtWebEngineWidgets import QWebEngineView
 import os
+import sys
+import threading
+import traceback
+from http.server import HTTPServer, SimpleHTTPRequestHandler
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton, QSizePolicy,
+    QListWidget, QListWidgetItem, QLabel, QApplication
+)
+from PySide6.QtGui import QMouseEvent
+from PySide6.QtCore import Qt, QThread, Signal, QUrl, QObject
+from PySide6.QtWebEngineWidgets import QWebEngineView
+from PySide6.QtWebEngineCore import QWebEnginePage
 
+# HTTP server thread
+default_http_port = 8000
+class HTTPServerThread(threading.Thread):
+    def __init__(self, directory, port=default_http_port):
+        super().__init__(daemon=True)
+        self.directory = directory
+        self.port = port
+    def run(self):
+        os.chdir(self.directory)
+        HTTPServer(('localhost', self.port), SimpleHTTPRequestHandler).serve_forever()
 
+# Custom WebEnginePage for JS logs
+class WebEnginePage(QWebEnginePage):
+    def javaScriptConsoleMessage(self, level, msg, line, src):
+        print(f"[JS][{line}] {msg}")
+
+# Thread for conversational callbacks
 class WorkerThread(QThread):
     resultado = Signal(str)
-
     def __init__(self, callback, texto):
         super().__init__()
         self.callback = callback
         self.texto = texto
-
     def run(self):
-        print(f"[WorkerThread] Iniciando con texto: {self.texto}")
         try:
-            respuesta = self.callback(self.texto)
-            print(f"[WorkerThread] Callback completado, emitiendo resultado")
-            self.resultado.emit(respuesta)
-        except Exception as e:
-            print(f"[WorkerThread] Excepción en run(): {e}")
+            resp = self.callback(self.texto)
+        except Exception:
             traceback.print_exc()
-            # Emitir un mensaje de error al GUI para notificar
-            self.resultado.emit("Lo siento, ocurrió un error inesperado.")
+            resp = "Lo siento, ocurrió un error inesperado."
+        self.resultado.emit(resp)
 
+# Thread for TTS playback
+class TTSWorker(QObject):
+    terminado = Signal()
+    def __init__(self, tts, texto):
+        super().__init__()
+        self.tts = tts
+        self.texto = texto
+    def run(self):
+        self.tts.speak(self.texto)
+        self.terminado.emit()
 
 class RinInterface(QWidget):
-    def __init__(self, enviar_callback):
+    # Signals to marshal STT callbacks into the Qt thread
+    stt_result = Signal(str)
+    stt_error = Signal(str)
+
+    def __init__(self, enviar_callback=None, memory_module=None, tts=None, stt=None):
         super().__init__()
-        self.setWindowTitle("Asistente Rin")
-        self.setFixedSize(600, 700)
-        self.setStyleSheet("background-color: #fef6fb;")
-
-        self.enviar_callback = enviar_callback
-        self.modo = "texto"
+        self.enviar_callback = enviar_callback or (lambda x: "")
+        self.memory = memory_module
+        self.tts = tts
+        self.stt = stt
+        self.modo = 'texto'
+        self._drag = None
         self.worker = None
+        self.tts_thread = None
 
-        # Layout principal
-        main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(15, 15, 15, 15)
-        main_layout.setSpacing(15)
+        # Connect STT signals
+        self.stt_result.connect(self._on_stt_result)
+        self.stt_error.connect(lambda msg: self._bubble('Rin', msg, False))
 
-        # Imagen Rin centrada
-        self.web_view = QWebEngineView()
-        ruta_html = os.path.abspath("ui/rin_live2d.html")
-        self.web_view.load(QUrl.fromLocalFile(ruta_html))
-        self.web_view.setFixedSize(280, 280)
-        main_layout.insertWidget(0, self.web_view)
+        # Start HTTP server
+        HTTPServerThread(os.path.join(os.getcwd(), 'ui')).start()
 
-        # Área de conversación (solo lectura)
-        self.chat_box = QTextEdit()
-        self.chat_box.setReadOnly(True)
-        self.chat_box.setStyleSheet(
-            """
-            background-color: #ffffff;
-            border-radius: 12px;
-            padding: 10px;
-            font-family: Consolas, monospace;
-            font-size: 14px;
-            """
-        )
-        self.chat_box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        main_layout.addWidget(self.chat_box)
+        # Window setup
+        self.setWindowFlags(Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.resize(800, 500)
 
-        # Campo de entrada de texto
-        self.text_input = QTextEdit()
-        self.text_input.setFixedHeight(60)
-        self.text_input.setStyleSheet(
-            """
-            border: 2px solid #ddd;
-            border-radius: 10px;
-            padding: 8px;
-            font-family: Arial, sans-serif;
-            font-size: 14px;
-            """
-        )
-        self.text_input.setPlaceholderText("Escribe tu mensaje aquí...")
-        self.text_input.textChanged.connect(self._toggle_send_button)
-        main_layout.addWidget(self.text_input)
+        # Layouts
+        main = QVBoxLayout(self)
+        main.setContentsMargins(5,5,5,5)
+        main.setSpacing(5)
+        content = QHBoxLayout()
+        main.addLayout(content)
 
-        # Fila de botones: Enviar/Escuchar y Cambiar modo
-        btn_layout = QHBoxLayout()
-        btn_layout.setSpacing(10)
+        # Chat
+        self.chat = QListWidget()
+        self.chat.setStyleSheet("QListWidget{background:transparent;border:none;} QListWidget::item{margin:6px;}" )
+        content.addWidget(self.chat, stretch=2)
 
-        self.send_btn = QPushButton("Enviar")
-        self.send_btn.setEnabled(False)
-        self.send_btn.setStyleSheet(
-            """
-            QPushButton {
-                background-color: #f06292;
-                color: white;
-                font-weight: bold;
-                border-radius: 10px;
-                padding: 10px 20px;
-            }
-            QPushButton:disabled {
-                background-color: #f8bbd0;
-                color: #eee;
-            }
-            QPushButton:hover:!disabled {
-                background-color: #ec407a;
-            }
-            """
-        )
-        self.send_btn.clicked.connect(self.enviar_texto)
-        btn_layout.addWidget(self.send_btn)
+        # Live2D
+        self.web = QWebEngineView()
+        page = WebEnginePage(self)
+        self.web.setPage(page)
+        self.web.setStyleSheet("background:transparent;")
+        self.web.page().setBackgroundColor(Qt.transparent)
+        self.web.load(QUrl(f"http://localhost:{default_http_port}/rin_live2d.html"))
+        content.addWidget(self.web, stretch=3)
 
-        self.mode_btn = QPushButton("Cambiar a Voz")
-        self.mode_btn.setStyleSheet(
-            """
-            QPushButton {
-                background-color: #cccccc;
-                color: #333;
-                border-radius: 10px;
-                padding: 10px 20px;
-            }
-            QPushButton:hover {
-                background-color: #bbbbbb;
-            }
-            """
-        )
-        self.mode_btn.clicked.connect(self.cambiar_modo)
-        btn_layout.addWidget(self.mode_btn)
+        # Input controls
+        bottom = QHBoxLayout()
+        main.addLayout(bottom)
+        self.input = QTextEdit()
+        self.input.setFixedHeight(60)
+        self.input.setPlaceholderText("Escribe tu mensaje...")
+        self.input.textChanged.connect(self._toggle_send)
+        bottom.addWidget(self.input, stretch=4)
 
-        main_layout.addLayout(btn_layout)
-        self.setLayout(main_layout)
+        self.btn_send = QPushButton('Enviar')
+        self.btn_send.setEnabled(False)
+        self.btn_send.clicked.connect(self._send)
+        bottom.addWidget(self.btn_send, stretch=1)
 
-    def _toggle_send_button(self):
-        texto = self.text_input.toPlainText().strip()
-        self.send_btn.setEnabled(bool(texto))
+        self.btn_mode = QPushButton('Cambiar a Voz')
+        self.btn_mode.clicked.connect(self._toggle_mode)
+        bottom.addWidget(self.btn_mode, stretch=1)
 
-    def enviar_texto(self):
-        # Dependiendo del modo, enviamos texto o solicitamos STT
-        if self.modo == "voz":
-            texto_a_procesar = ""
+    def _toggle_send(self):
+        enabled = (self.modo == 'voz') or bool(self.input.toPlainText().strip())
+        self.btn_send.setEnabled(enabled)
+
+    def _toggle_mode(self):
+        if self.modo == 'texto':
+            self.modo = 'voz'
+            self.btn_mode.setText('Cambiar a Texto')
+            self.input.setDisabled(True)
+            self.btn_send.setText('Escuchar')
+            self.btn_send.setEnabled(True)
         else:
-            texto_a_procesar = self.text_input.toPlainText().strip()
-            if not texto_a_procesar:
-                return
-            self._append_chat("Tú", texto_a_procesar, is_usuario=True)
-            self.text_input.clear()
-            self.send_btn.setEnabled(False)
+            self.modo = 'texto'
+            self.btn_mode.setText('Cambiar a Voz')
+            self.input.setDisabled(False)
+            self.btn_send.setText('Enviar')
+            self.btn_send.setEnabled(False)
 
-        # Ejecutar callback en hilo para no bloquear UI
-        self.worker = WorkerThread(self.enviar_callback, texto_a_procesar)
-        self.worker.resultado.connect(self.mostrar_respuesta)
+    def _send(self):
+        if self.modo == 'voz':
+            # Disable button and show listening bubble
+            self.btn_send.setEnabled(False)
+            self._bubble('Rin', 'Escuchando…', False)
+            # Use SpeechToTextModule with Qt signals
+            self.stt.escuchar(callback=self._stt_callback)
+        else:
+            text = self.input.toPlainText().strip()
+            self.input.clear()
+            self._start_worker(text)
+
+    def _stt_callback(self, text):
+        # Called in non-Qt thread; emit signals to Qt thread
+        if text:
+            self.stt_result.emit(text)
+        else:
+            self.stt_error.emit('No te escuché bien, intenta otra vez.')
+            # Re-enable after error
+            QThread.currentThread().msleep(100)
+            self.btn_send.setEnabled(True)
+
+    def _on_stt_result(self, text):
+        # Re-enable button
+        if self.modo == 'voz':
+            self.btn_send.setEnabled(True)
+        # Start processing
+        self._start_worker(text)
+
+    def _start_worker(self, text):
+        if not text:
+            return
+        self._bubble('Tú', text, True)
+        # Stop previous worker if running
+        if self.worker and self.worker.isRunning():
+            self.worker.terminate()
+            self.worker.wait()
+        self.worker = WorkerThread(self.enviar_callback, text)
+        self.worker.resultado.connect(self._on_response)
         self.worker.start()
 
-    def mostrar_respuesta(self, respuesta):
-        if respuesta:
-            self._append_chat("Rin", respuesta, is_usuario=False)
+    def _on_response(self, resp):
+        self._bubble('Rin', resp, False)
+        # TTS
+        if self.tts_thread and self.tts_thread.isRunning():
+            self.tts_thread.quit()
+            self.tts_thread.wait()
+        self.tts_thread = QThread()
+        tts_worker = TTSWorker(self.tts, resp)
+        tts_worker.moveToThread(self.tts_thread)
+        self.tts_thread.started.connect(tts_worker.run)
+        tts_worker.terminado.connect(self.tts_thread.quit)
+        tts_worker.terminado.connect(tts_worker.deleteLater)
+        self.tts_thread.finished.connect(self.tts_thread.deleteLater)
+        self.tts_thread.start()
+        # Re-enable in voice mode
+        if self.modo == 'voz':
+            self.btn_send.setEnabled(True)
 
-    def cambiar_modo(self):
-        if self.modo == "texto":
-            self.modo = "voz"
-            self.mode_btn.setText("Cambiar a Texto")
-            self.text_input.setDisabled(True)
-            self.send_btn.setText("Escuchar")
-            self.send_btn.setEnabled(True)
+    def _bubble(self, who, msg, is_user):
+        item = QListWidgetItem()
+        lbl = QLabel(msg)
+        lbl.setWordWrap(True)
+        lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        lbl.setMaximumWidth(self.chat.width() * 0.8)
+        color = '#1E3A5F' if is_user else '#4527A0'
+        lbl.setStyleSheet(f"background: {color}; color: white; padding:12px; border-radius:12px; font-size:14px;")
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(4,4,4,4)
+        if is_user:
+            layout.addStretch()
+            layout.addWidget(lbl)
         else:
-            self.modo = "texto"
-            self.mode_btn.setText("Cambiar a Voz")
-            self.text_input.setDisabled(False)
-            self.send_btn.setText("Enviar")
-            self.send_btn.setEnabled(False)
+            layout.addWidget(lbl)
+            layout.addStretch()
+        item.setSizeHint(container.sizeHint())
+        self.chat.addItem(item)
+        self.chat.setItemWidget(item, container)
+        self.chat.scrollToBottom()
 
-    def _append_chat(self, quien, texto, is_usuario):
-        cursor = self.chat_box.textCursor()
-        cursor.movePosition(QTextCursor.End)
-
-        formato_usuario = QTextCharFormat()
-        formato_usuario.setForeground(QColor("#49e5eb"))
-        formato_usuario.setFontWeight(QFont.Bold)
-
-        formato_rin = QTextCharFormat()
-        formato_rin.setForeground(QColor("#6A36F8"))
-        formato_rin.setFontWeight(QFont.Bold)
-
-        formato = formato_usuario if is_usuario else formato_rin
-        cursor.insertText(f"{quien}: ", formato)
-        cursor.insertText(texto + "\n\n")
-
-        self.chat_box.ensureCursorVisible()
+    # Draggable
+    def mousePressEvent(self, e: QMouseEvent):
+        if e.button() == Qt.LeftButton:
+            self._drag = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
+    def mouseMoveEvent(self, e: QMouseEvent):
+        if getattr(self, '_drag', None) and e.buttons() == Qt.LeftButton:
+            self.move(e.globalPosition().toPoint() - self._drag)
+    def mouseReleaseEvent(self, e: QMouseEvent):
+        self._drag = None
